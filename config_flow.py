@@ -12,6 +12,7 @@ from homeassistant.const import (
     CONF_URL,
     CONF_VERIFY_SSL,
     CONF_SCAN_INTERVAL,
+    CONF_ASSET_LABEL
 )
 
 from .auth_client import HomeboxAuthClient
@@ -35,7 +36,7 @@ async def validate_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[str,
     )
     
     # Test connection and auth
-    if not await client.test_connection():
+    if not await client.authenticate():
         raise CannotConnect
         
     # Return info to be stored in the config entry

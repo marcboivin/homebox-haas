@@ -5,10 +5,12 @@ DOMAIN = "homebox"
 
 # Default values
 DEFAULT_SCAN_INTERVAL = 60  # minutes
-DEFAULT_VERIFY_SSL = True
+DEFAULT_VERIFY_SSL = False
 
 # Configuration and options
 CONF_REFRESH_TOKEN = "refresh_token"
+
+CONF_ASSET_LABEL = "Asset Label"
 
 # API paths
 API_ENDPOINT_LOGIN = "users/login"
