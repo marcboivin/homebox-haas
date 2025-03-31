@@ -96,7 +96,6 @@ class HomeboxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(
                         CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL
                     ): bool,
-                    vol.Optional(CONF_ASSET_LABEL): str,
                 }
             ),
             errors=errors,
