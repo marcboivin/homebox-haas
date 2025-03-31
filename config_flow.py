@@ -12,11 +12,11 @@ from homeassistant.const import (
     CONF_URL,
     CONF_VERIFY_SSL,
     CONF_SCAN_INTERVAL,
-    CONF_ASSET_LABEL
+    
 )
 
 from .auth_client import HomeboxAuthClient
-from .const import DOMAIN, DEFAULT_SCAN_INTERVAL, DEFAULT_VERIFY_SSL
+from .const import DOMAIN, DEFAULT_SCAN_INTERVAL, DEFAULT_VERIFY_SSL, CONF_ASSET_LABEL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -96,6 +96,7 @@ class HomeboxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional(
                         CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL
                     ): bool,
+                    vol.Optional(): str,
                 }
             ),
             errors=errors,
