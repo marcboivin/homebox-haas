@@ -1,0 +1,43 @@
+type: custom:vertical-stack-card
+title: Homebox Assets
+cards:
+  {% for asset in states.sensor | selectattr('entity_id', 'search', 'sensor.homebox') | list %}
+  - type: entities
+    title: {{ asset.name }}
+    entities:
+      - entity: {{ asset.entity_id }}
+        name: Location
+        secondary_info: last-changed
+    footer:
+      type: custom:hui-element
+      card_type: horizontal-stack
+      cards:
+        - type: button
+          name: Change Location
+          tap_action:
+            action: fire-dom-event
+            browser_mod:
+              service: browser_mod.popup
+              data:
+                title: Change Location - {{ asset.name }}
+                content:
+                  type: custom:hui-element
+                  card_type: entities
+                  entities:
+                    {% for location in states.sensor[asset.entity_id].attributes.all_locations %}
+                    - type: button
+                      name: "{{ location.name }}"
+                      tap_action:
+                        action: call-service
+                        service: homebox.change_location_{{ asset.attributes.asset_id }}
+                        service_data:
+                          location_id: "{{ location.id }}"
+                        target: {}
+                      {% if location.id == asset.attributes.location_id %}
+                      icon: mdi:check-circle
+                      icon_color: green
+                      {% else %}
+                      icon: mdi:map-marker
+                      {% endif %}
+                    {% endfor %}
+  {% endfor %}

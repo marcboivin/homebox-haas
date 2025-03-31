@@ -238,6 +238,46 @@ class HomeboxAuthClient:
         except Exception as ex:
             _LOGGER.error(f"Failed to update asset location: {ex}")
             return False
+            
+    async def register_webhook(self, webhook_url: str, events: list = None) -> bool:
+        """Register a webhook with Homebox.
+        
+        Args:
+            webhook_url: The URL to send webhooks to
+            events: List of event types to subscribe to (default: asset events)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if events is None:
+            events = ["asset.created", "asset.updated", "asset.deleted"]
+            
+        try:
+            data = {
+                "url": webhook_url,
+                "events": events,
+                "is_active": True
+            }
+            
+            result = await self.api_request("POST", "webhooks", data=data)
+            _LOGGER.info(f"Registered webhook with Homebox: {webhook_url}")
+            return True
+        except Exception as ex:
+            _LOGGER.error(f"Failed to register webhook: {ex}")
+            return False
+            
+    async def list_webhooks(self) -> list:
+        """List all registered webhooks.
+        
+        Returns:
+            List of webhook objects
+        """
+        try:
+            result = await self.api_request("GET", "webhooks")
+            return result.get("data", [])
+        except Exception as ex:
+            _LOGGER.error(f"Failed to list webhooks: {ex}")
+            return []
 
 
 class HomeboxAuthError(Exception):
