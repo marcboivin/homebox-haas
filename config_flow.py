@@ -31,7 +31,8 @@ async def validate_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[str,
         username=data[CONF_USERNAME],
         password=data[CONF_PASSWORD],
         refresh_interval=data[CONF_SCAN_INTERVAL],
-        verify_ssl=data[CONF_VERIFY_SSL]
+        verify_ssl=data[CONF_VERIFY_SSL],
+        use_https=data.get(CONF_USE_HTTPS, DEFAULT_USE_HTTPS)
     )
     
     # Test connection and auth
@@ -94,6 +95,9 @@ class HomeboxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ): vol.All(vol.Coerce(int), vol.Range(min=1, max=1440)),
                     vol.Optional(
                         CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL
+                    ): bool,
+                    vol.Optional(
+                        CONF_USE_HTTPS, default=DEFAULT_USE_HTTPS
                     ): bool,
                     vol.Optional(CONF_ASSET_LABEL): str,
                 }
