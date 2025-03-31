@@ -16,7 +16,8 @@ class HomeboxAuthClient:
         username: str, 
         password: str, 
         refresh_interval: int = 60,
-        verify_ssl: bool = True
+        verify_ssl: bool = True,
+        use_https: bool = True
     ):
         """Initialize the Homebox client.
         
@@ -26,11 +27,13 @@ class HomeboxAuthClient:
             password: Homebox password
             refresh_interval: Minutes between token refreshes
             verify_ssl: Whether to verify SSL certificates
+            use_https: Whether to use HTTPS or HTTP
         """
         # Store configuration
         self.server_url = server_url.rstrip('/')
         if not self.server_url.startswith(('http://', 'https://')):
-            self.server_url = f"https://{self.server_url}"
+            protocol = "https" if use_https else "http"
+            self.server_url = f"{protocol}://{self.server_url}"
             
         self.username = username
         self.password = password

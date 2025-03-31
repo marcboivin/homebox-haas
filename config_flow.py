@@ -11,7 +11,7 @@ from homeassistant.const import (
     CONF_USERNAME,
     CONF_URL,
     CONF_VERIFY_SSL,
-    CONF_SCAN_INTERVAL
+    CONF_SCAN_INTERVAL,
 )
 
 from .auth_client import HomeboxAuthClient
