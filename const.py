@@ -13,7 +13,7 @@ CONF_REFRESH_TOKEN = "refresh_token"
 # API paths
 API_ENDPOINT_LOGIN = "users/login"
 API_ENDPOINT_LOCATIONS = "locations"
-DEFAULT_USE_HTTPS = True
+DEFAULT_USE_HTTPS = False
 CONF_USE_HTTPS = "Use HTTPS?"
 
 # Synchronization settings
