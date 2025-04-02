@@ -32,22 +32,33 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     client = hass.data[DOMAIN][entry.entry_id]["client"]
     
+    _LOGGER.debug(f"Setting up Homebox sensors for entry {entry.entry_id}")
+    
     # Get the item label filter (if any)
     item_label = entry.data.get(CONF_ASSET_LABEL)
+    _LOGGER.debug(f"Using item label filter: {item_label}")
     
     # Get all items from Homebox (filtered by label if provided)
     items = await client.get_items(label=item_label)
+    _LOGGER.debug(f"Retrieved {len(items)} items from Homebox")
+    
+    if items and len(items) > 0:
+        # Log the first item to understand its structure
+        _LOGGER.debug(f"Sample item structure: {items[0]}")
     
     if not items:
         _LOGGER.info("No items found in Homebox matching the criteria")
         return
-        
+    
     # Create a sensor entity for each item
     entities = []
     for item in items:
+        _LOGGER.debug(f"Creating sensor for item: {item.get('id')} - {item.get('name')}")
         entities.append(HomeboxItemSensor(coordinator, client, item, entry))
-        
+    
+    _LOGGER.debug(f"Adding {len(entities)} Homebox entities to Home Assistant")
     async_add_entities(entities)
+    _LOGGER.info(f"Added {len(entities)} Homebox sensors to Home Assistant")
 
 
 class HomeboxItemSensor(CoordinatorEntity, SensorEntity):
@@ -59,13 +70,20 @@ class HomeboxItemSensor(CoordinatorEntity, SensorEntity):
         self.client = client
         self._item = item
         self._entry = entry
-        self._attr_unique_id = f"homebox_item_{item['id']}"
-        self._attr_name = item.get("name", f"Item {item['id']}")
+        
+        # Get the item ID and name with fallbacks
+        item_id = item.get("id") or item.get("_id")
+        item_name = item.get("name", f"Item {item_id}")
+        
+        self._attr_unique_id = f"homebox_item_{item_id}"
+        self._attr_name = item_name
         self._attr_icon = ENTITY_ICON
+        
+        _LOGGER.debug(f"Initializing sensor for item {item_id} - {item_name}")
         
         # Set up device info
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, item["id"])},
+            identifiers={(DOMAIN, item_id)},
             name=self._attr_name,
             manufacturer="Homebox",
             model=item.get("model", "Item"),
@@ -81,9 +99,13 @@ class HomeboxItemSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
+        _LOGGER.debug(f"Getting state for sensor {self._attr_name}, item: {self._item}")
+        
         # Check if location is directly included in the item (nested object)
         if "location" in self._item and isinstance(self._item["location"], dict):
-            return self._item["location"].get("name", "Unknown")
+            location_name = self._item["location"].get("name")
+            _LOGGER.debug(f"Found location directly in item: {location_name}")
+            return location_name
             
         # Fall back to looking up by location_id
         location_id = self._item.get("location_id")
@@ -91,8 +113,11 @@ class HomeboxItemSensor(CoordinatorEntity, SensorEntity):
             locations = self.coordinator.data.get("locations", [])
             for location in locations:
                 if location.get("id") == location_id:
-                    return location.get("name")
+                    location_name = location.get("name")
+                    _LOGGER.debug(f"Found location by ID lookup: {location_name}")
+                    return location_name
         
+        _LOGGER.debug(f"Could not determine location for item {self._attr_name}")
         return "Unknown"
 
     @property
@@ -132,11 +157,20 @@ class HomeboxItemSensor(CoordinatorEntity, SensorEntity):
         """Register callbacks."""
         await super().async_added_to_hass()
         
+        # Get the item ID safely
+        item_id = self._item.get("id") or self._item.get("_id")
+        if not item_id:
+            _LOGGER.error("Cannot register service for item without ID")
+            return
+            
         # Register services
+        service_name = f"change_location_{item_id}"
+        _LOGGER.debug(f"Registering service {service_name}")
+        
         self.async_on_remove(
             self.hass.services.async_register(
                 DOMAIN,
-                f"change_location_{self._item['id']}",
+                service_name,
                 self._service_change_location,
                 schema=vol.Schema({vol.Required("location_id"): str}),
             )
@@ -146,7 +180,7 @@ class HomeboxItemSensor(CoordinatorEntity, SensorEntity):
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                f"{SIGNAL_ITEM_UPDATED}_{self._item['id']}",
+                f"{SIGNAL_ITEM_UPDATED}_{item_id}",
                 self._handle_item_update
             )
         )
