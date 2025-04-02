@@ -88,7 +88,7 @@ class HomeboxItemSensor(CoordinatorEntity, SensorEntity):
             manufacturer="Homebox",
             model=item.get("model", "Item"),
             sw_version=None,
-            via_device=(DOMAIN, entry.entry_id),
+            # Don't use via_device to prevent referencing non-existing devices
         )
 
     @property
