@@ -24,3 +24,5 @@ PLATFORMS = []  # We'll add these as we implement entity support
 
 CONF_ASSET_LABEL = "Asset Label"
 
+CONF_WEBHOOK_ID = ""
+
