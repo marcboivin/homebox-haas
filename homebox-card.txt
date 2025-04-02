@@ -1,36 +1,15 @@
-title: "Homebox"
-views:
-  - title: "Assets"
-    path: assets
-    icon: mdi:package-variant-closed
-    cards:
-      - type: markdown
-        title: Homebox Assets
-        content: >
-          This dashboard shows all your Homebox items and their locations.
-          You can manage your items here.
-      - type: entity-filter
-        title: Your Items
-        entities:
-          - entity: sensor.homebox_item_*
-        state_filter:
-          - "*"
-        card:
-          type: entities
-          show_header_toggle: false
-      - type: entities
-        title: Global Actions
-        show_header_toggle: false
-        entities:
-          - type: button
-            name: Sync Locations
-            icon: mdi:map-marker-multiple
-            tap_action:
-              action: call-service
-              service: homebox.sync_locations
-          - type: button
-            name: Refresh Items
-            icon: mdi:refresh
-            tap_action:
-              action: call-service
-              service: homeassistant.reload_config_entry
+type: entities
+title: Homebox Assets
+entities:
+  - entity: sensor.homebox_item_1
+  - entity: sensor.homebox_item_2
+  - entity: sensor.homebox_item_3
+footer:
+  type: buttons
+  entities:
+    - entity: input_button.sync_homebox_locations
+      name: Sync Locations
+      icon: mdi:sync
+    - entity: input_button.refresh_homebox
+      name: Refresh Items
+      icon: mdi:refresh
