@@ -134,6 +134,62 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         })
     )
     
+    # Register service for changing asset location (legacy service)
+    async def handle_change_asset_location(call):
+        """Handle the service call to change an asset's location."""
+        asset_id = call.data.get("asset_id")
+        location_id = call.data.get("location_id")
+        
+        if not asset_id or not location_id:
+            _LOGGER.error("Missing required parameters: asset_id and location_id")
+            return
+            
+        if entry.entry_id in hass.data[DOMAIN]:
+            client = hass.data[DOMAIN][entry.entry_id]["client"]
+            await client.update_item_location(asset_id, location_id)
+            
+            # Force coordinator to refresh data
+            coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+            await coordinator.async_request_refresh()
+    
+    hass.services.async_register(
+        DOMAIN, 
+        "change_asset_location", 
+        handle_change_asset_location,
+        schema=vol.Schema({
+            vol.Required("asset_id"): str,
+            vol.Required("location_id"): str,
+        })
+    )
+    
+    # Register a more intuitive "move_item" service that's an alias to change_item_location
+    async def handle_move_item(call):
+        """Handle the service call to move an item to a different location."""
+        item_id = call.data.get("item_id")
+        location_id = call.data.get("location_id")
+        
+        if not item_id or not location_id:
+            _LOGGER.error("Missing required parameters: item_id and location_id")
+            return
+            
+        if entry.entry_id in hass.data[DOMAIN]:
+            client = hass.data[DOMAIN][entry.entry_id]["client"]
+            await client.update_item_location(item_id, location_id)
+            
+            # Force coordinator to refresh data
+            coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+            await coordinator.async_request_refresh()
+    
+    hass.services.async_register(
+        DOMAIN, 
+        "move_item", 
+        handle_move_item,
+        schema=vol.Schema({
+            vol.Required("item_id"): str,
+            vol.Required("location_id"): str,
+        })
+    )
+    
     # Set up all platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     

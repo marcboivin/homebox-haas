@@ -22,3 +22,22 @@ change_asset_location:
       example: "0987654321"
       selector:
         text:
+
+move_item:
+  name: Move Item
+  description: Move a Homebox item from one location to another.
+  fields:
+    item_id:
+      name: Item ID
+      description: ID of the item to move
+      required: true
+      example: "1234567890"
+      selector:
+        text:
+    location_id:
+      name: Location ID
+      description: ID of the destination location
+      required: true
+      example: "0987654321"
+      selector:
+        text:
