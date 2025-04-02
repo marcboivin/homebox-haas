@@ -1,96 +1,36 @@
 title: "Homebox"
 views:
   - title: "Assets"
+    path: assets
     icon: mdi:package-variant-closed
     cards:
-      - type: custom:vertical-stack-card
+      - type: markdown
         title: Homebox Assets
-        cards:
-          - type: custom:auto-entities
-            filter:
-              include:
-                - entity_id: "sensor.homebox_*"
-            sort:
-              method: name
-              reverse: false
-            card:
-              type: custom:fold-entity-row
-              head:
-                type: custom:template-entity-row
-                entity: this.entity_id
-                name: "{{ state_attr(this.entity_id, 'friendly_name') }}"
-                state: "{{ states(this.entity_id) }}"
-                icon: mdi:package-variant-closed
-              entities:
-                - type: section
-                  label: Details
-                - type: attribute
-                  entity: this.entity_id
-                  attribute: description
-                  name: Description
-                  icon: mdi:information-outline
-                - type: attribute
-                  entity: this.entity_id
-                  attribute: manufacturer
-                  name: Manufacturer
-                  icon: mdi:factory
-                - type: attribute
-                  entity: this.entity_id
-                  attribute: model
-                  name: Model
-                  icon: mdi:barcode
-                - type: section
-                  label: Actions
-                - type: custom:button-card
-                  name: Change Location
-                  icon: mdi:map-marker
-                  tap_action:
-                    action: fire-dom-event
-                    browser_mod:
-                      service: browser_mod.popup
-                      data:
-                        title: "Change Location - {{ state_attr(this.entity_id, 'friendly_name') }}"
-                        content:
-                          type: entities
-                          entities:
-                            - type: custom:auto-entities
-                              filter:
-                                include:
-                                  - domain: input_select
-                                    name: "Locations"
-                              card:
-                                type: custom:button-card
-                                entity: this.entity_id
-                                name: "{{ state }}"
-                                tap_action:
-                                  action: call-service
-                                  service: "homebox.change_location_{{ state_attr(this.parent.entity_id, 'item_id') }}"
-                                  service_data:
-                                    location_id: "{{ state_attr(this.entity_id, 'location_id') }}"
-                - type: custom:button-card
-                  name: Move With Item
-                  icon: mdi:map-marker-move
-                  tap_action:
-                    action: fire-dom-event
-                    browser_mod:
-                      service: browser_mod.popup
-                      data:
-                        title: "Move With Item - {{ state_attr(this.entity_id, 'friendly_name') }}"
-                        content:
-                          type: entities
-                          entities:
-                            - type: custom:auto-entities
-                              filter:
-                                include:
-                                  - entity_id: "sensor.homebox_*"
-                                exclude:
-                                  - entity_id: this.entity_id
-                              card:
-                                type: custom:button-card
-                                entity: this.entity_id
-                                name: "{{ state_attr(this.entity_id, 'friendly_name') }}"
-                                tap_action:
-                                  action: call-service
-                                  service: "homebox.move_item_{{ state_attr(this.parent.entity_id, 'item_id') }}"
-                                  service_data:
-                                    target_item_id: "{{ state_attr(this.entity_id, 'item_id') }}"
+        content: >
+          This dashboard shows all your Homebox items and their locations.
+          You can manage your items here.
+      - type: entity-filter
+        title: Your Items
+        entities:
+          - entity: sensor.homebox_item_*
+        state_filter:
+          - "*"
+        card:
+          type: entities
+          show_header_toggle: false
+      - type: entities
+        title: Global Actions
+        show_header_toggle: false
+        entities:
+          - type: button
+            name: Sync Locations
+            icon: mdi:map-marker-multiple
+            tap_action:
+              action: call-service
+              service: homebox.sync_locations
+          - type: button
+            name: Refresh Items
+            icon: mdi:refresh
+            tap_action:
+              action: call-service
+              service: homeassistant.reload_config_entry
