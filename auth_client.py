@@ -5,13 +5,11 @@ import aiohttp
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 
-from .errors import HomeboxAuthError, HomeboxApiError
-
 _LOGGER = logging.getLogger(__name__)
 
 class HomeboxAuthClient:
     """Client to handle Homebox authentication and API requests."""
-    
+
     def __init__(
         self, 
         server_url: str, 
@@ -21,7 +19,16 @@ class HomeboxAuthClient:
         verify_ssl: bool = True,
         use_https: bool = True
     ):
-        """Initialize the Homebox client."""
+        """Initialize the Homebox client.
+        
+        Args:
+            server_url: Base URL of the Homebox server (without http/https)
+            username: Homebox username (usually email)
+            password: Homebox password
+            refresh_interval: Minutes between token refreshes
+            verify_ssl: Whether to verify SSL certificates
+            use_https: Whether to use HTTPS or HTTP
+        """
         # Store configuration
         self.server_url = server_url.rstrip('/')
         if not self.server_url.startswith(('http://', 'https://')):
@@ -164,7 +171,7 @@ class HomeboxAuthClient:
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "Authorization": f"{self.auth_token}"
+            "Authorization": self.auth_token
         }
         
         try:
@@ -355,7 +362,7 @@ class HomeboxAuthClient:
                 "is_active": True
             }
             
-            result = await self.api_request("POST", "webhooks", data=data)
+            result = await self.api_request("POST", "notifiers", data=data)
             _LOGGER.info(f"Registered webhook with Homebox: {webhook_url}")
             return True
         except Exception as ex:
@@ -369,8 +376,8 @@ class HomeboxAuthClient:
             List of webhook objects
         """
         try:
-            result = await self.api_request("GET", "webhooks")
-            _LOGGER.debug(f"Webhooks API response: {result}")
+            result = await self.api_request("GET", "notifiers")
+            _LOGGER.debug(f"Notifiers API response: {result}")
             
             # Handle different response formats
             if isinstance(result, list):
@@ -379,13 +386,13 @@ class HomeboxAuthClient:
                 if isinstance(result["data"], list):
                     return result["data"]
                 else:
-                    _LOGGER.warning(f"Unexpected data type in webhooks response: {type(result['data'])}")
+                    _LOGGER.warning(f"Unexpected data type in notifiers response: {type(result['data'])}")
                     return []
             else:
-                _LOGGER.warning(f"Unexpected webhooks response format: {result}")
+                _LOGGER.warning(f"Unexpected notifiers response format: {result}")
                 return []
         except Exception as ex:
-            _LOGGER.error(f"Failed to list webhooks: {ex}")
+            _LOGGER.error(f"Failed to list notifiers: {ex}")
             return []
 
 
