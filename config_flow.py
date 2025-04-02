@@ -30,8 +30,8 @@ async def validate_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[str,
         server_url=data[CONF_URL],
         username=data[CONF_USERNAME],
         password=data[CONF_PASSWORD],
-        refresh_interval=data[CONF_SCAN_INTERVAL],
-        verify_ssl=data[CONF_VERIFY_SSL],
+        refresh_interval=data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+        verify_ssl=data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
         use_https=data.get(CONF_USE_HTTPS, DEFAULT_USE_HTTPS)
     )
     
@@ -41,6 +41,7 @@ async def validate_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[str,
         
     # Return info to be stored in the config entry
     return {"title": f"Homebox ({data[CONF_URL]})"}
+
 
 
 class HomeboxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -63,10 +64,27 @@ class HomeboxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             try:
                 info = await validate_input(self.hass, user_input)
                 
+                # Clean up the user_input to ensure only needed data is stored
+                config_data = {
+                    CONF_URL: user_input[CONF_URL],
+                    CONF_USERNAME: user_input[CONF_USERNAME],
+                    CONF_PASSWORD: user_input[CONF_PASSWORD],
+                }
+                
+                # Only add optional fields if they're present and not default
+                if CONF_SCAN_INTERVAL in user_input:
+                    config_data[CONF_SCAN_INTERVAL] = user_input[CONF_SCAN_INTERVAL]
+                if CONF_VERIFY_SSL in user_input:
+                    config_data[CONF_VERIFY_SSL] = user_input[CONF_VERIFY_SSL]
+                if CONF_USE_HTTPS in user_input:
+                    config_data[CONF_USE_HTTPS] = user_input[CONF_USE_HTTPS]
+                if CONF_ASSET_LABEL in user_input and user_input[CONF_ASSET_LABEL]:
+                    config_data[CONF_ASSET_LABEL] = user_input[CONF_ASSET_LABEL]
+                
                 # If this is a reauth, update the config entry
                 if self._reauth_entry:
                     self.hass.config_entries.async_update_entry(
-                        self._reauth_entry, data=user_input
+                        self._reauth_entry, data=config_data
                     )
                     await self.hass.config_entries.async_reload(
                         self._reauth_entry.entry_id
@@ -74,7 +92,7 @@ class HomeboxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     return self.async_abort(reason="reauth_successful")
                 
                 # Otherwise create a new entry
-                return self.async_create_entry(title=info["title"], data=user_input)
+                return self.async_create_entry(title=info["title"], data=config_data)
                 
             except CannotConnect:
                 errors["base"] = "cannot_connect"
