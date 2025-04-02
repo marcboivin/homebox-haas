@@ -107,7 +107,7 @@ class HomeboxAuthClient:
                     self.last_refresh = datetime.now()
                     self.authenticated = True
                     
-                    _LOGGER.info("Successfully authenticated with Homebox {self.auth_token}")
+                    _LOGGER.info("Successfully authenticated with Homebox")
                     return True
             
         except aiohttp.ClientError as ex:
@@ -138,7 +138,7 @@ class HomeboxAuthClient:
         endpoint: str, 
         data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+    ) -> Any:
         """Make an authenticated request to the Homebox API.
         
         Args:
@@ -148,7 +148,7 @@ class HomeboxAuthClient:
             params: Optional URL parameters
             
         Returns:
-            Dict containing the JSON response from the API
+            The parsed JSON response from the API
             
         Raises:
             HomeboxAuthError: If authentication fails
@@ -198,7 +198,14 @@ class HomeboxAuthClient:
                             raise HomeboxAuthError("Failed to refresh authentication token")
                             
                     response.raise_for_status()
-                    return await response.json()
+                    
+                    # Try to parse JSON response
+                    try:
+                        return await response.json()
+                    except aiohttp.ContentTypeError:
+                        # If response is not JSON, return the text
+                        _LOGGER.warning(f"Response is not valid JSON: {response_text}")
+                        return response_text
             
         except aiohttp.ClientError as ex:
             _LOGGER.error(f"API request failed: {ex}")
@@ -215,7 +222,28 @@ class HomeboxAuthClient:
         """Get all locations from Homebox."""
         try:
             result = await self.api_request("GET", "locations")
-            return result.get("data", [])
+            _LOGGER.debug(f"Locations API response: {result}")
+            
+            # Handle different response formats
+            if isinstance(result, list):
+                # The response is directly a list of locations
+                return result
+            elif isinstance(result, dict):
+                # The response is a dictionary, try to extract the locations from it
+                if "data" in result and isinstance(result["data"], list):
+                    return result["data"]
+                else:
+                    # Try to find any list in the response
+                    for key, value in result.items():
+                        if isinstance(value, list):
+                            _LOGGER.debug(f"Found locations in '{key}' field")
+                            return value
+                    
+                    _LOGGER.warning(f"Unexpected location response format, no list found: {result}")
+                    return []
+            else:
+                _LOGGER.warning(f"Unexpected location response type: {type(result)}")
+                return []
         except Exception as ex:
             _LOGGER.error(f"Failed to get Homebox locations: {ex}")
             return []
@@ -252,7 +280,20 @@ class HomeboxAuthClient:
             params = {"label": label} if label else None
             
             result = await self.api_request("GET", "assets", params=params)
-            return result.get("data", [])
+            _LOGGER.debug(f"Assets API response: {result}")
+            
+            # Handle different response formats
+            if isinstance(result, list):
+                return result
+            elif isinstance(result, dict) and "data" in result:
+                if isinstance(result["data"], list):
+                    return result["data"]
+                else:
+                    _LOGGER.warning(f"Unexpected data type in assets response: {type(result['data'])}")
+                    return []
+            else:
+                _LOGGER.warning(f"Unexpected assets response format: {result}")
+                return []
         except Exception as ex:
             _LOGGER.error(f"Failed to get Homebox assets: {ex}")
             return []
@@ -311,7 +352,20 @@ class HomeboxAuthClient:
         """
         try:
             result = await self.api_request("GET", "webhooks")
-            return result.get("data", [])
+            _LOGGER.debug(f"Webhooks API response: {result}")
+            
+            # Handle different response formats
+            if isinstance(result, list):
+                return result
+            elif isinstance(result, dict) and "data" in result:
+                if isinstance(result["data"], list):
+                    return result["data"]
+                else:
+                    _LOGGER.warning(f"Unexpected data type in webhooks response: {type(result['data'])}")
+                    return []
+            else:
+                _LOGGER.warning(f"Unexpected webhooks response format: {result}")
+                return []
         except Exception as ex:
             _LOGGER.error(f"Failed to list webhooks: {ex}")
             return []
