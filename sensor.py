@@ -32,43 +32,43 @@ async def async_setup_entry(
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     client = hass.data[DOMAIN][entry.entry_id]["client"]
     
-    # Get the asset label filter (if any)
-    asset_label = entry.data.get(CONF_ASSET_LABEL)
+    # Get the item label filter (if any)
+    item_label = entry.data.get(CONF_ASSET_LABEL)
     
-    # Get all assets from Homebox (filtered by label if provided)
-    assets = await client.get_assets(label=asset_label)
+    # Get all items from Homebox (filtered by label if provided)
+    items = await client.get_items(label=item_label)
     
-    if not assets:
-        _LOGGER.info("No assets found in Homebox matching the criteria")
+    if not items:
+        _LOGGER.info("No items found in Homebox matching the criteria")
         return
         
-    # Create a sensor entity for each asset
+    # Create a sensor entity for each item
     entities = []
-    for asset in assets:
-        entities.append(HomeboxAssetSensor(coordinator, client, asset, entry))
+    for item in items:
+        entities.append(HomeboxItemSensor(coordinator, client, item, entry))
         
     async_add_entities(entities)
 
 
-class HomeboxAssetSensor(CoordinatorEntity, SensorEntity):
-    """Representation of a Homebox asset as a sensor entity."""
+class HomeboxItemSensor(CoordinatorEntity, SensorEntity):
+    """Representation of a Homebox item as a sensor entity."""
 
-    def __init__(self, coordinator, client, asset, entry):
+    def __init__(self, coordinator, client, item, entry):
         """Initialize the sensor."""
         super().__init__(coordinator)
         self.client = client
-        self._asset = asset
+        self._item = item
         self._entry = entry
-        self._attr_unique_id = f"homebox_asset_{asset['id']}"
-        self._attr_name = asset.get("name", f"Asset {asset['id']}")
+        self._attr_unique_id = f"homebox_item_{item['id']}"
+        self._attr_name = item.get("name", f"Item {item['id']}")
         self._attr_icon = ENTITY_ICON
         
         # Set up device info
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, asset["id"])},
+            identifiers={(DOMAIN, item["id"])},
             name=self._attr_name,
             manufacturer="Homebox",
-            model=asset.get("model", "Asset"),
+            model=item.get("model", "Item"),
             sw_version=None,
             via_device=(DOMAIN, entry.entry_id),
         )
@@ -81,8 +81,12 @@ class HomeboxAssetSensor(CoordinatorEntity, SensorEntity):
     @property
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
-        # The state of the sensor is the current location name
-        location_id = self._asset.get("location_id")
+        # Check if location is directly included in the item (nested object)
+        if "location" in self._item and isinstance(self._item["location"], dict):
+            return self._item["location"].get("name", "Unknown")
+            
+        # Fall back to looking up by location_id
+        location_id = self._item.get("location_id")
         if location_id and self.coordinator.data:
             locations = self.coordinator.data.get("locations", [])
             for location in locations:
@@ -95,21 +99,29 @@ class HomeboxAssetSensor(CoordinatorEntity, SensorEntity):
     def extra_state_attributes(self) -> Dict[str, Any]:
         """Return the state attributes."""
         attributes = {
-            "asset_id": self._asset.get("id"),
-            "description": self._asset.get("description", ""),
-            "purchase_date": self._asset.get("purchase_date"),
-            "purchase_price": self._asset.get("purchase_price"),
-            "purchase_from": self._asset.get("purchase_from"),
-            "warranty_expires": self._asset.get("warranty_expires"),
-            "location_id": self._asset.get("location_id"),
-            "labels": self._asset.get("labels", []),
-            "manufacturer": self._asset.get("manufacturer"),
-            "model": self._asset.get("model"),
-            "serial_number": self._asset.get("serial_number"),
-            "last_updated": self._asset.get("updated_at"),
+            "item_id": self._item.get("id"),
+            "description": self._item.get("description", ""),
+            "purchase_date": self._item.get("purchase_date"),
+            "purchase_price": self._item.get("purchase_price"),
+            "purchase_from": self._item.get("purchase_from"),
+            "warranty_expires": self._item.get("warranty_expires"),
+            "labels": self._item.get("labels", []),
+            "manufacturer": self._item.get("manufacturer"),
+            "model": self._item.get("model"),
+            "serial_number": self._item.get("serial_number"),
+            "last_updated": self._item.get("updated_at") or self._item.get("updatedAt"),
+            "quantity": self._item.get("quantity", 1),
             ATTR_ATTRIBUTION: "Data provided by Homebox",
         }
         
+        # Extract location information (either nested or by ID)
+        if "location" in self._item and isinstance(self._item["location"], dict):
+            location = self._item["location"]
+            attributes["location_id"] = location.get("id")
+            attributes["location_name"] = location.get("name")
+        else:
+            attributes["location_id"] = self._item.get("location_id")
+            
         # Add all available locations to allow changing location from Lovelace
         if self.coordinator.data and "locations" in self.coordinator.data:
             attributes["all_locations"] = self.coordinator.data["locations"]
@@ -124,40 +136,40 @@ class HomeboxAssetSensor(CoordinatorEntity, SensorEntity):
         self.async_on_remove(
             self.hass.services.async_register(
                 DOMAIN,
-                f"change_location_{self._asset['id']}",
+                f"change_location_{self._item['id']}",
                 self._service_change_location,
                 schema=vol.Schema({vol.Required("location_id"): str}),
             )
         )
         
-        # Listen for asset update signals from webhook
+        # Listen for item update signals from webhook
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                f"{SIGNAL_ASSET_UPDATED}_{self._asset['id']}",
-                self._handle_asset_update
+                f"{SIGNAL_ITEM_UPDATED}_{self._item['id']}",
+                self._handle_item_update
             )
         )
         
     @callback
-    def _handle_asset_update(self, asset: dict) -> None:
-        """Handle asset update from webhook."""
-        # Update our local asset data
-        if asset:
-            self._asset.update(asset)
+    def _handle_item_update(self, item: dict) -> None:
+        """Handle item update from webhook."""
+        # Update our local item data
+        if item:
+            self._item.update(item)
             # Update entity state
             self.async_write_ha_state()
 
     async def _service_change_location(self, service_call) -> None:
-        """Handle the service call to change the asset location."""
+        """Handle the service call to change the item location."""
         location_id = service_call.data["location_id"]
         
-        _LOGGER.debug(f"Changing location of asset {self._asset['id']} to {location_id}")
-        success = await self.client.update_asset_location(self._asset["id"], location_id)
+        _LOGGER.debug(f"Changing location of item {self._item['id']} to {location_id}")
+        success = await self.client.update_item_location(self._item["id"], location_id)
         
         if success:
-            # Update the local asset data
-            self._asset["location_id"] = location_id
+            # Update the local item data
+            self._item["location_id"] = location_id
             self.async_write_ha_state()
             
             # Force a data update via coordinator

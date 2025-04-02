@@ -1,381 +1,259 @@
-"""Homebox API Client for authentication and API communication."""
+"""The Homebox integration."""
+import asyncio
 import logging
-import time
-import aiohttp
-from typing import Dict, Any, Optional
+import voluptuous as vol
 from datetime import datetime, timedelta
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import (
+    CONF_PASSWORD,
+    CONF_USERNAME,
+    CONF_URL,
+    CONF_VERIFY_SSL,
+    CONF_SCAN_INTERVAL,
+    Platform,
+)
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry as ar
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+
+from .auth_client import HomeboxAuthClient, HomeboxAuthError, HomeboxApiError
+from .const import DOMAIN, PLATFORMS, CONF_ASSET_LABEL, CONF_WEBHOOK_ID, CONF_USE_HTTPS, DEFAULT_USE_HTTPS
+from .webhook import async_setup_webhook
 
 _LOGGER = logging.getLogger(__name__)
 
-class HomeboxAuthClient:
-    """Client to handle Homebox authentication and API requests."""
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Homebox from a config entry."""
+    # Get configuration
+    server_url = entry.data[CONF_URL]
+    username = entry.data[CONF_USERNAME]
+    password = entry.data[CONF_PASSWORD]
+    scan_interval = entry.data.get(CONF_SCAN_INTERVAL, 60)  # minutes
+    verify_ssl = entry.data.get(CONF_VERIFY_SSL, True)
+    use_https = entry.data.get(CONF_USE_HTTPS, DEFAULT_USE_HTTPS)
+    
+    # Create API client
+    client = HomeboxAuthClient(
+        server_url=server_url,
+        username=username,
+        password=password,
+        refresh_interval=scan_interval,
+        verify_ssl=verify_ssl,
+        use_https=use_https
+    )
+    
+    # Attempt initial authentication
+    try:
+        if not await client.authenticate():
+            raise ConfigEntryAuthFailed("Failed to authenticate with Homebox")
+    except (HomeboxAuthError, HomeboxApiError) as ex:
+        _LOGGER.error("Error authenticating with Homebox: %s", ex)
+        raise ConfigEntryAuthFailed(f"Authentication error: {ex}")
+    
+    # Create update coordinator
+    coordinator = HomeboxDataUpdateCoordinator(
+        hass,
+        client=client,
+        name=DOMAIN,
+        update_interval=timedelta(minutes=scan_interval)
+    )
+    
+    # Fetch initial data
+    await coordinator.async_config_entry_first_refresh()
+    
+    # Set up webhook for real-time updates if external URL is configured
+    if hass.config.external_url:
+        # Use existing webhook_id or create a new one
+        webhook_id = entry.data.get(CONF_WEBHOOK_ID)
+        webhook_url = await async_setup_webhook(hass, webhook_id)
+        
+        # Register webhook with Homebox
+        if await client.register_webhook(webhook_url):
+            # Save webhook_id if it's new
+            if CONF_WEBHOOK_ID not in entry.data:
+                new_data = {**entry.data, CONF_WEBHOOK_ID: webhook_id}
+                hass.config_entries.async_update_entry(entry, data=new_data)
+    else:
+        _LOGGER.warning(
+            "External URL not configured. Webhook functionality disabled. "
+            "Configure external_url in configuration.yaml to enable webhooks."
+        )
+    
+    # Store client and coordinator for platforms to access
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][entry.entry_id] = {
+        "client": client,
+        "coordinator": coordinator,
+    }
+    
+    # Synchronize Home Assistant areas to Homebox locations
+    await sync_locations(hass, client)
+    
+    # Register service to manually synchronize locations
+    async def handle_sync_locations(call):
+        """Handle the service call to synchronize locations."""
+        if entry.entry_id in hass.data[DOMAIN]:
+            client = hass.data[DOMAIN][entry.entry_id]["client"]
+            await sync_locations(hass, client)
+    
+    hass.services.async_register(
+        DOMAIN, "sync_locations", handle_sync_locations
+    )
+    
+    # Register service to change item location
+    async def handle_change_item_location(call):
+        """Handle the service call to change an item's location."""
+        item_id = call.data.get("item_id")
+        location_id = call.data.get("location_id")
+        
+        if not item_id or not location_id:
+            _LOGGER.error("Missing required parameters: item_id and location_id")
+            return
+            
+        if entry.entry_id in hass.data[DOMAIN]:
+            client = hass.data[DOMAIN][entry.entry_id]["client"]
+            await client.update_item_location(item_id, location_id)
+            
+            # Force coordinator to refresh data
+            coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+            await coordinator.async_request_refresh()
+    
+    hass.services.async_register(
+        DOMAIN, 
+        "change_item_location", 
+        handle_change_item_location,
+        schema=vol.Schema({
+            vol.Required("item_id"): str,
+            vol.Required("location_id"): str,
+        })
+    )
+    
+    # Set up all platforms
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    
+    # Add update listener for config entry changes
+    entry.async_on_unload(entry.add_update_listener(async_update_options))
+    
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    # Unload platforms
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    
+    # Clean up
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id)
+        
+    return unload_ok
+
+
+async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Update options."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def sync_locations(hass: HomeAssistant, client: HomeboxAuthClient) -> None:
+    """Synchronize Home Assistant areas to Homebox locations.
+    
+    This creates locations in Homebox for each area in Home Assistant
+    that doesn't already exist in Homebox.
+    """
+    _LOGGER.info("Synchronizing Home Assistant areas to Homebox locations")
+    
+    try:
+        # Get Home Assistant areas
+        area_reg = ar.async_get(hass)
+        ha_areas = {area.name for area in area_reg.async_list_areas()}
+        
+        # Get Homebox locations
+        homebox_locations = await client.get_locations()
+        homebox_location_names = {loc.get("name") for loc in homebox_locations}
+        
+        # Find areas that need to be created in Homebox
+        missing_locations = ha_areas - homebox_location_names
+        
+        if not missing_locations:
+            _LOGGER.info("All Home Assistant areas already exist in Homebox")
+            return
+            
+        # Create missing locations in Homebox
+        _LOGGER.info(f"Creating {len(missing_locations)} new locations in Homebox")
+        
+        for location_name in missing_locations:
+            await client.create_location(location_name)
+            
+        _LOGGER.info("Location synchronization complete")
+        
+    except Exception as ex:
+        _LOGGER.error(f"Error synchronizing locations: {ex}")
+        # We don't want to fail the entire integration if location sync fails
+        # so we just log the error and continue
+
+
+class HomeboxDataUpdateCoordinator(DataUpdateCoordinator):
+    """Class to manage fetching Homebox data."""
 
     def __init__(
-        self, 
-        server_url: str, 
-        username: str, 
-        password: str, 
-        refresh_interval: int = 60,
-        verify_ssl: bool = True,
-        use_https: bool = True
-    ):
-        """Initialize the Homebox client.
+        self,
+        hass: HomeAssistant,
+        client: HomeboxAuthClient,
+        name: str,
+        update_interval: timedelta,
+    ) -> None:
+        """Initialize the coordinator."""
+        self.client = client
+        self.hass = hass
+        self.last_sync_time = None
         
-        Args:
-            server_url: Base URL of the Homebox server (without http/https)
-            username: Homebox username (usually email)
-            password: Homebox password
-            refresh_interval: Minutes between token refreshes
-            verify_ssl: Whether to verify SSL certificates
-            use_https: Whether to use HTTPS or HTTP
-        """
-        # Store configuration
-        self.server_url = server_url.rstrip('/')
-        if not self.server_url.startswith(('http://', 'https://')):
-            protocol = "https" if use_https else "http"
-            self.server_url = f"{protocol}://{self.server_url}"
-            
-        self.username = username
-        self.password = password
-        self.refresh_interval = refresh_interval
-        self.verify_ssl = verify_ssl
-        
-        # Authentication state
-        self.auth_token = None
-        self.token_expiry = None
-        self.last_refresh = None
-        self.authenticated = False
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=name,
+            update_interval=update_interval,
+        )
 
-    async def authenticate(self) -> bool:
-        """Authenticate with Homebox and get a new token."""
-        auth_url = f"{self.server_url}/api/v1/users/login"
-        
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        }
-        
-        payload = {
-            "username": self.username,
-            "password": self.password,
-            "stayLoggedIn": True
-        }
-        
-        _LOGGER.debug(f"Authenticating with Homebox at {auth_url}")
-        
+    async def _async_update_data(self):
+        """Fetch data from Homebox API."""
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    auth_url,
-                    headers=headers,
-                    json=payload,
-                    ssl=None if not self.verify_ssl else True
-                ) as response:
-                    response_text = await response.text()
-                    _LOGGER.debug(f"Authentication response status: {response.status}, body: {response_text[:200]}")
-                    
-                    response.raise_for_status()
-                    auth_data = await response.json()
-                    
-                    # Store the authentication token
-                    # Extract token from response - adjust based on actual Homebox API response format
-                    if "token" in auth_data:
-                        self.auth_token = auth_data["token"]
-                        _LOGGER.debug(f"Received token: {self.auth_token[:10]}...")
-                    elif "data" in auth_data and "token" in auth_data["data"]:
-                        self.auth_token = auth_data["data"]["token"]
-                        _LOGGER.debug(f"Received token from data object: {self.auth_token[:10]}...")
-                    else:
-                        _LOGGER.error(f"Authentication response doesn't contain token: {auth_data}")
-                        self.authenticated = False
-                        return False
-                    
-                    if not self.auth_token:
-                        _LOGGER.error("Authentication succeeded but no token was extracted")
-                        self.authenticated = False
-                        return False
-                        
-                    # Set token expiry (if provided in response, otherwise use refresh interval)
-                    if "expires" in auth_data:
-                        self.token_expiry = datetime.fromisoformat(auth_data["expires"].replace("Z", "+00:00"))
-                    elif "data" in auth_data and "expires" in auth_data["data"]:
-                        self.token_expiry = datetime.fromisoformat(auth_data["data"]["expires"].replace("Z", "+00:00"))
-                    else:
-                        # If no expiry provided, set based on refresh interval
-                        self.token_expiry = datetime.now() + timedelta(minutes=self.refresh_interval)
-                        
-                    self.last_refresh = datetime.now()
-                    self.authenticated = True
-                    
-                    _LOGGER.info("Successfully authenticated with Homebox")
-                    return True
+            # Ensure the token is valid before making any requests
+            if not await self.client.ensure_token_valid():
+                raise UpdateFailed("Failed to authenticate with Homebox")
             
-        except aiohttp.ClientError as ex:
-            _LOGGER.error(f"Failed to authenticate with Homebox: {ex}")
-            self.authenticated = False
-            return False
-        except Exception as ex:
-            _LOGGER.error(f"Unexpected error during authentication: {ex}")
-            self.authenticated = False
-            return False
-
-    async def ensure_token_valid(self) -> bool:
-        """Check if token needs refresh and authenticate if needed."""
-        # If never authenticated or token expiry is approaching, authenticate
-        if (
-            not self.authenticated 
-            or not self.auth_token 
-            or not self.token_expiry 
-            or datetime.now() >= (self.token_expiry - timedelta(minutes=5))
-        ):
-            return await self.authenticate()
+            # Periodic location sync (once per day)
+            current_time = datetime.now()
+            if (not self.last_sync_time or 
+                (current_time - self.last_sync_time).total_seconds() > 86400):  # 24 hours
+                _LOGGER.info("Performing daily location synchronization")
+                await sync_locations(self.hass, self.client)
+                self.last_sync_time = current_time
             
-        return True
-
-    async def api_request(
-        self, 
-        method: str, 
-        endpoint: str, 
-        data: Optional[Dict[str, Any]] = None,
-        params: Optional[Dict[str, Any]] = None
-    ) -> Any:
-        """Make an authenticated request to the Homebox API.
-        
-        Args:
-            method: HTTP method (GET, POST, PUT, DELETE)
-            endpoint: API endpoint path (without leading slash)
-            data: Optional JSON data for POST/PUT requests
-            params: Optional URL parameters
+            # Get asset label filter (if any)
+            # We need to find the config entry from one of our client instances
+            config_entries = self.hass.config_entries.async_entries(DOMAIN)
+            asset_label = None
+            for entry in config_entries:
+                if CONF_ASSET_LABEL in entry.data:
+                    asset_label = entry.data[CONF_ASSET_LABEL]
+                    break
             
-        Returns:
-            The parsed JSON response from the API
+            # Fetch items and locations
+            items = await self.client.get_items(label=asset_label)
+            locations = await self.client.get_locations()
             
-        Raises:
-            HomeboxAuthError: If authentication fails
-            HomeboxApiError: If the API request fails
-        """
-        # Ensure we have a valid token
-        if not await self.ensure_token_valid():
-            raise HomeboxAuthError("Failed to authenticate with Homebox")
-            
-        # Build the request
-        url = f"{self.server_url}/api/v1/{endpoint.lstrip('/')}"
-        
-        # Make sure we have an auth token
-        if not self.auth_token:
-            _LOGGER.error("No auth token available for API request")
-            raise HomeboxAuthError("No authentication token available")
-            
-        _LOGGER.debug(f"Making API request to {url} with token: {self.auth_token[:10]}...")
-        
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "Authorization": f"{self.auth_token}"
-        }
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.request(
-                    method,
-                    url,
-                    headers=headers,
-                    json=data if data else None,
-                    params=params if params else None,
-                    ssl=None if not self.verify_ssl else True
-                ) as response:
-                    response_text = await response.text()
-                    _LOGGER.debug(f"Response status: {response.status}, body: {response_text[:200]}")
-                    
-                    if response.status == 401:
-                        _LOGGER.warning("Authentication token rejected, attempting to re-authenticate")
-                        # Try to re-authenticate once
-                        if await self.authenticate():
-                            _LOGGER.info("Re-authentication successful, retrying request")
-                            # Retry the request with the new token
-                            return await self.api_request(method, endpoint, data, params)
-                        else:
-                            raise HomeboxAuthError("Failed to refresh authentication token")
-                            
-                    response.raise_for_status()
-                    
-                    # Try to parse JSON response
-                    try:
-                        return await response.json()
-                    except aiohttp.ContentTypeError:
-                        # If response is not JSON, return the text
-                        _LOGGER.warning(f"Response is not valid JSON: {response_text}")
-                        return response_text
-            
-        except aiohttp.ClientError as ex:
-            _LOGGER.error(f"API request failed: {ex}")
-            raise HomeboxApiError(f"API request failed: {ex}")
-        except Exception as ex:
-            _LOGGER.error(f"Unexpected error during API request: {ex}")
-            raise HomeboxApiError(f"Unexpected error during API request: {ex}")
-
-    async def test_connection(self) -> bool:
-        """Test the connection to Homebox by attempting to authenticate."""
-        return await self.authenticate()
-        
-    async def get_locations(self) -> list:
-        """Get all locations from Homebox."""
-        try:
-            result = await self.api_request("GET", "locations")
-            _LOGGER.debug(f"Locations API response: {result}")
-            
-            # Handle different response formats
-            if isinstance(result, list):
-                # The response is directly a list of locations
-                return result
-            elif isinstance(result, dict):
-                # The response is a dictionary, try to extract the locations from it
-                if "data" in result and isinstance(result["data"], list):
-                    return result["data"]
-                else:
-                    # Try to find any list in the response
-                    for key, value in result.items():
-                        if isinstance(value, list):
-                            _LOGGER.debug(f"Found locations in '{key}' field")
-                            return value
-                    
-                    _LOGGER.warning(f"Unexpected location response format, no list found: {result}")
-                    return []
-            else:
-                _LOGGER.warning(f"Unexpected location response type: {type(result)}")
-                return []
-        except Exception as ex:
-            _LOGGER.error(f"Failed to get Homebox locations: {ex}")
-            return []
-            
-    async def create_location(self, name: str) -> bool:
-        """Create a new location in Homebox.
-        
-        Args:
-            name: The name of the location to create
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            data = {"name": name}
-            result = await self.api_request("POST", "locations", data=data)
-            _LOGGER.info(f"Created new Homebox location: {name}")
-            return True
-        except Exception as ex:
-            _LOGGER.error(f"Failed to create Homebox location '{name}': {ex}")
-            return False
-            
-    async def get_assets(self, label: str = None) -> list:
-        """Get assets from Homebox, optionally filtered by label.
-        
-        Args:
-            label: Optional label to filter assets by
-            
-        Returns:
-            List of asset objects
-        """
-        try:
-            # Build query parameters if label is provided
-            params = {"label": label} if label else None
-            
-            result = await self.api_request("GET", "items", params=params)
-            _LOGGER.debug(f"Assets API response: {result}")
-            
-            # Handle different response formats
-            if isinstance(result, list):
-                return result
-            elif isinstance(result, dict) and "data" in result:
-                if isinstance(result["data"], list):
-                    return result["data"]
-                else:
-                    _LOGGER.warning(f"Unexpected data type in assets response: {type(result['data'])}")
-                    return []
-            else:
-                _LOGGER.warning(f"Unexpected assets response format: {result}")
-                return []
-        except Exception as ex:
-            _LOGGER.error(f"Failed to get Homebox assets: {ex}")
-            return []
-            
-    async def update_asset_location(self, asset_id: str, location_id: str) -> bool:
-        """Update the location of an asset.
-        
-        Args:
-            asset_id: ID of the asset to update
-            location_id: ID of the new location
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            data = {"location_id": location_id}
-            result = await self.api_request("PATCH", f"items/{asset_id}", data=data)
-            _LOGGER.info(f"Updated location for asset {asset_id} to {location_id}")
-            return True
-        except Exception as ex:
-            _LOGGER.error(f"Failed to update asset location: {ex}")
-            return False
-            
-    async def register_webhook(self, webhook_url: str, events: list = None) -> bool:
-        """Register a webhook with Homebox.
-        
-        Args:
-            webhook_url: The URL to send webhooks to
-            events: List of event types to subscribe to (default: asset events)
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        if events is None:
-            events = ["asset.created", "asset.updated", "asset.deleted"]
-            
-        try:
-            data = {
-                "url": webhook_url,
-                "events": events,
-                "is_active": True
+            return {
+                "items": items,
+                "locations": locations,
+                "last_update": datetime.now(),
             }
             
-            result = await self.api_request("POST", "webhooks", data=data)
-            _LOGGER.info(f"Registered webhook with Homebox: {webhook_url}")
-            return True
-        except Exception as ex:
-            _LOGGER.error(f"Failed to register webhook: {ex}")
-            return False
-            
-    async def list_webhooks(self) -> list:
-        """List all registered webhooks.
-        
-        Returns:
-            List of webhook objects
-        """
-        try:
-            result = await self.api_request("GET", "webhooks")
-            _LOGGER.debug(f"Webhooks API response: {result}")
-            
-            # Handle different response formats
-            if isinstance(result, list):
-                return result
-            elif isinstance(result, dict) and "data" in result:
-                if isinstance(result["data"], list):
-                    return result["data"]
-                else:
-                    _LOGGER.warning(f"Unexpected data type in webhooks response: {type(result['data'])}")
-                    return []
-            else:
-                _LOGGER.warning(f"Unexpected webhooks response format: {result}")
-                return []
-        except Exception as ex:
-            _LOGGER.error(f"Failed to list webhooks: {ex}")
-            return []
-
-
-class HomeboxAuthError(Exception):
-    """Exception raised for Homebox authentication errors."""
-    pass
-
-
-class HomeboxApiError(Exception):
-    """Exception raised for Homebox API errors."""
-    pass
+        except HomeboxAuthError as ex:
+            _LOGGER.error("Authentication error: %s", ex)
+            raise ConfigEntryAuthFailed(f"Authentication error: {ex}")
+        except HomeboxApiError as ex:
+            _LOGGER.error("Error fetching data: %s", ex)
+            raise UpdateFailed(f"Error fetching data: {ex}")

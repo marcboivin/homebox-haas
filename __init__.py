@@ -103,19 +103,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         DOMAIN, "sync_locations", handle_sync_locations
     )
     
-    # Register service to change asset location
-    async def handle_change_asset_location(call):
-        """Handle the service call to change an asset's location."""
-        asset_id = call.data.get("asset_id")
+    # Register service to change item location
+    async def handle_change_item_location(call):
+        """Handle the service call to change an item's location."""
+        item_id = call.data.get("item_id")
         location_id = call.data.get("location_id")
         
-        if not asset_id or not location_id:
-            _LOGGER.error("Missing required parameters: asset_id and location_id")
+        if not item_id or not location_id:
+            _LOGGER.error("Missing required parameters: item_id and location_id")
             return
             
         if entry.entry_id in hass.data[DOMAIN]:
             client = hass.data[DOMAIN][entry.entry_id]["client"]
-            await client.update_asset_location(asset_id, location_id)
+            await client.update_item_location(item_id, location_id)
             
             # Force coordinator to refresh data
             coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
@@ -123,10 +123,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     hass.services.async_register(
         DOMAIN, 
-        "change_asset_location", 
-        handle_change_asset_location,
+        "change_item_location", 
+        handle_change_item_location,
         schema=vol.Schema({
-            vol.Required("asset_id"): str,
+            vol.Required("item_id"): str,
             vol.Required("location_id"): str,
         })
     )
@@ -241,12 +241,12 @@ class HomeboxDataUpdateCoordinator(DataUpdateCoordinator):
                     asset_label = entry.data[CONF_ASSET_LABEL]
                     break
             
-            # Fetch assets and locations
-            assets = await self.client.get_assets(label=asset_label)
+            # Fetch items and locations
+            items = await self.client.get_items(label=asset_label)
             locations = await self.client.get_locations()
             
             return {
-                "assets": assets,
+                "items": items,
                 "locations": locations,
                 "last_update": datetime.now(),
             }
