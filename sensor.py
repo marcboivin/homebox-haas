@@ -19,7 +19,7 @@ from .const import (
     DOMAIN,
     ENTITY_DEVICE_CLASS,
     ENTITY_ICON,
-    SIGNAL_ASSET_UPDATED,
+    SIGNAL_ITEM_UPDATED,
 )
 
 _LOGGER = logging.getLogger(__name__)
