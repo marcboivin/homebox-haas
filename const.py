@@ -26,3 +26,4 @@ CONF_ASSET_LABEL = "Asset Label"
 
 CONF_WEBHOOK_ID = ""
 
+WEBHOOK_ENDPOINT = ""
