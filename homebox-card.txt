@@ -1,66 +1,91 @@
 type: custom:vertical-stack-card
 title: Homebox Assets
 cards:
-  {% for asset in states.sensor | selectattr('entity_id', 'search', 'sensor.homebox') | list %}
-  - type: entities
-    title: {{ asset.name }}
-    entities:
-      - entity: {{ asset.entity_id }}
-        name: Location
-        secondary_info: last-changed
-    footer:
-      type: custom:hui-element
-      card_type: horizontal-stack
-      cards:
-        - type: button
+  - type: custom:auto-entities
+    filter:
+      include:
+        - entity_id: "sensor.homebox_*"
+    sort:
+      method: name
+      reverse: false
+    card:
+      type: custom:fold-entity-row
+      head:
+        type: custom:template-entity-row
+        entity: this.entity_id
+        name: "{{ state_attr(this.entity_id, 'friendly_name') }}"
+        state: "{{ states(this.entity_id) }}"
+        icon: mdi:package-variant-closed
+      entities:
+        - type: section
+          label: Details
+        - type: attribute
+          entity: this.entity_id
+          attribute: description
+          name: Description
+          icon: mdi:information-outline
+        - type: attribute
+          entity: this.entity_id
+          attribute: manufacturer
+          name: Manufacturer
+          icon: mdi:factory
+        - type: attribute
+          entity: this.entity_id
+          attribute: model
+          name: Model
+          icon: mdi:barcode
+        - type: section
+          label: Actions
+        - type: custom:button-card
           name: Change Location
+          icon: mdi:map-marker
           tap_action:
             action: fire-dom-event
             browser_mod:
               service: browser_mod.popup
               data:
-                title: Change Location - {{ asset.name }}
+                title: "Change Location - {{ state_attr(this.entity_id, 'friendly_name') }}"
                 content:
-                  type: custom:hui-element
-                  card_type: entities
+                  type: entities
                   entities:
-                    {% for location in states.sensor[asset.entity_id].attributes.all_locations %}
-                    - type: button
-                      name: "{{ location.name }}"
-                      tap_action:
-                        action: call-service
-                        service: homebox.change_location_{{ asset.attributes.asset_id }}
-                        service_data:
-                          location_id: "{{ location.id }}"
-                        target: {}
-                      {% if location.id == asset.attributes.location_id %}
-                      icon: mdi:check-circle
-                      icon_color: green
-                      {% else %}
-                      icon: mdi:map-marker
-                      {% endif %}
-                    {% endfor %}
-        - type: button
+                    - type: custom:auto-entities
+                      filter:
+                        include:
+                          - domain: input_select
+                            name: "Locations"
+                      card:
+                        type: custom:button-card
+                        entity: this.entity_id
+                        name: "{{ state }}"
+                        tap_action:
+                          action: call-service
+                          service: "homebox.change_location_{{ state_attr(this.parent.entity_id, 'item_id') }}"
+                          service_data:
+                            location_id: "{{ state_attr(this.entity_id, 'location_id') }}"
+        - type: custom:button-card
           name: Move With Item
+          icon: mdi:map-marker-move
           tap_action:
             action: fire-dom-event
             browser_mod:
               service: browser_mod.popup
               data:
-                title: Move Item - {{ asset.name }}
+                title: "Move With Item - {{ state_attr(this.entity_id, 'friendly_name') }}"
                 content:
-                  type: custom:hui-element
-                  card_type: entities
+                  type: entities
                   entities:
-                    {% for other_asset in states.sensor | selectattr('entity_id', 'search', 'sensor.homebox') | rejectattr('entity_id', 'eq', asset.entity_id) | list %}
-                    - type: button
-                      name: "{{ other_asset.name }}"
-                      tap_action:
-                        action: call-service
-                        service: homebox.move_item_{{ asset.attributes.asset_id }}
-                        service_data:
-                          target_item_id: "{{ other_asset.attributes.item_id }}"
-                        target: {}
-                      icon: mdi:map-marker-move
-                    {% endfor %}
-  {% endfor %}
+                    - type: custom:auto-entities
+                      filter:
+                        include:
+                          - entity_id: "sensor.homebox_*"
+                        exclude:
+                          - entity_id: this.entity_id
+                      card:
+                        type: custom:button-card
+                        entity: this.entity_id
+                        name: "{{ state_attr(this.entity_id, 'friendly_name') }}"
+                        tap_action:
+                          action: call-service
+                          service: "homebox.move_item_{{ state_attr(this.parent.entity_id, 'item_id') }}"
+                          service_data:
+                            target_item_id: "{{ state_attr(this.entity_id, 'item_id') }}"
