@@ -107,7 +107,7 @@ class HomeboxAuthClient:
                     self.last_refresh = datetime.now()
                     self.authenticated = True
                     
-                    _LOGGER.info("Successfully authenticated with Homebox")
+                    _LOGGER.info("Successfully authenticated with Homebox {self.auth_token}")
                     return True
             
         except aiohttp.ClientError as ex:
@@ -171,7 +171,7 @@ class HomeboxAuthClient:
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.auth_token}"
+            "Authorization": f"{self.auth_token}"
         }
         
         try:
