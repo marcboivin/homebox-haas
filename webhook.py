@@ -12,7 +12,6 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import DOMAIN, WEBHOOK_ENDPOINT, SIGNAL_ITEM_UPDATED
-from .errors import HomeboxAuthError, HomeboxApiError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,8 +24,32 @@ async def async_setup_webhook(hass: HomeAssistant, webhook_id: str = None) -> st
     
     hass.http.register_view(HomeboxWebhookView(hass, webhook_id))
     
-    # Return the webhook URL that can be registered with Homebox
-    return f"{hass.config.external_url}/{WEBHOOK_ENDPOINT}/{webhook_id}"
+    # Get the external URL from Home Assistant config
+    external_url = hass.config.external_url
+    if not external_url:
+        _LOGGER.warning("External URL not configured. Webhook functionality disabled.")
+        return None
+    
+    # Parse external URL to get host and port
+    from urllib.parse import urlparse
+    parsed_url = urlparse(external_url)
+    
+    # Get host without the scheme
+    host = parsed_url.netloc
+    
+    # If no port specified, use default ports
+    if ":" not in host:
+        port = "443" if parsed_url.scheme == "https" else "80"
+        host = f"{host}:{port}"
+    
+    # Create a webhook URL in the shoutrrr format required by Homebox
+    # Format: generic://host:port/api/webhook/webhook_id?template=json&disabletls=yes
+    disabletls = "yes" if parsed_url.scheme == "http" else "no"
+    shoutrrr_url = f"generic://{host}/api/webhook/{webhook_id}?template=json&disabletls={disabletls}"
+    
+    _LOGGER.debug(f"Created shoutrrr webhook URL: {shoutrrr_url}")
+    
+    return shoutrrr_url
 
 
 class HomeboxWebhookView(HomeAssistantView):
@@ -34,7 +57,7 @@ class HomeboxWebhookView(HomeAssistantView):
 
     requires_auth = False
     cors_allowed = True
-    url = f"/{WEBHOOK_ENDPOINT}/{{webhook_id}}"
+    url = f"/api/webhook/{{webhook_id}}"
     name = f"{DOMAIN}_webhook"
 
     def __init__(self, hass: HomeAssistant, webhook_id: str):
