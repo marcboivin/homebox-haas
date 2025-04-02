@@ -18,14 +18,8 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-# Import constants before other local modules
+from .auth_client import HomeboxAuthClient, HomeboxAuthError, HomeboxApiError
 from .const import DOMAIN, PLATFORMS, CONF_ASSET_LABEL, CONF_WEBHOOK_ID, CONF_USE_HTTPS, DEFAULT_USE_HTTPS
-
-# Import custom exceptions
-from .errors import HomeboxAuthError, HomeboxApiError
-
-# Now import other custom modules that might use the above
-from .auth_client import HomeboxAuthClient
 from .webhook import async_setup_webhook
 
 _LOGGER = logging.getLogger(__name__)
@@ -76,12 +70,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         webhook_id = entry.data.get(CONF_WEBHOOK_ID)
         webhook_url = await async_setup_webhook(hass, webhook_id)
         
-        # Register webhook with Homebox
-        if await client.register_webhook(webhook_url):
-            # Save webhook_id if it's new
-            if CONF_WEBHOOK_ID not in entry.data:
-                new_data = {**entry.data, CONF_WEBHOOK_ID: webhook_id}
-                hass.config_entries.async_update_entry(entry, data=new_data)
+        # Register webhook with Homebox if we got a valid URL
+        if webhook_url:
+            if await client.register_webhook(webhook_url):
+                # Save webhook_id if it's new
+                if CONF_WEBHOOK_ID not in entry.data:
+                    new_data = {**entry.data, CONF_WEBHOOK_ID: webhook_id}
+                    hass.config_entries.async_update_entry(entry, data=new_data)
+        else:
+            _LOGGER.warning("Could not create a valid webhook URL. Webhook functionality disabled.")
     else:
         _LOGGER.warning(
             "External URL not configured. Webhook functionality disabled. "

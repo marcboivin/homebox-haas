@@ -393,3 +393,13 @@ class HomeboxAuthClient:
         except Exception as ex:
             _LOGGER.error(f"Failed to list notifiers: {ex}")
             return []
+
+
+class HomeboxAuthError(Exception):
+    """Exception raised for Homebox authentication errors."""
+    pass
+
+
+class HomeboxApiError(Exception):
+    """Exception raised for Homebox API errors."""
+    pass
