@@ -347,23 +347,22 @@ class HomeboxAuthClient:
         
         Args:
             webhook_url: The URL to send webhooks to
-            events: List of event types to subscribe to (default: item events)
+            events: List of event types to subscribe to (not used in this version)
             
         Returns:
             True if successful, False otherwise
         """
-        if events is None:
-            events = ["item.created", "item.updated", "item.deleted"]
-            
         try:
+            # Using the exact structure as defined in the Go struct
             data = {
-                "url": webhook_url,
-                "events": events,
-                "is_active": True
+                "name": "Home Assistant Integration",
+                "isActive": True,
+                "url": webhook_url
             }
             
+            _LOGGER.debug(f"Registering notifier with format: {data}")
             result = await self.api_request("POST", "notifiers", data=data)
-            _LOGGER.info(f"Registered webhook with Homebox: {webhook_url}")
+            _LOGGER.info(f"Successfully registered webhook with Homebox: {webhook_url}")
             return True
         except Exception as ex:
             _LOGGER.error(f"Failed to register webhook: {ex}")
@@ -394,13 +393,3 @@ class HomeboxAuthClient:
         except Exception as ex:
             _LOGGER.error(f"Failed to list notifiers: {ex}")
             return []
-
-
-class HomeboxAuthError(Exception):
-    """Exception raised for Homebox authentication errors."""
-    pass
-
-
-class HomeboxApiError(Exception):
-    """Exception raised for Homebox API errors."""
-    pass
