@@ -11,7 +11,8 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-from .const import DOMAIN, WEBHOOK_ENDPOINT, SIGNAL_ASSET_UPDATED
+from .const import DOMAIN, WEBHOOK_ENDPOINT, SIGNAL_ITEM_UPDATED
+from .errors import HomeboxAuthError, HomeboxApiError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,12 +55,12 @@ class HomeboxWebhookView(HomeAssistantView):
         try:
             webhook_type = data.get("type", "unknown")
             
-            if webhook_type == "asset.updated":
-                await self._handle_asset_updated(data)
-            elif webhook_type == "asset.created":
-                await self._handle_asset_created(data)
-            elif webhook_type == "asset.deleted":
-                await self._handle_asset_deleted(data)
+            if webhook_type == "item.updated":
+                await self._handle_item_updated(data)
+            elif webhook_type == "item.created":
+                await self._handle_item_created(data)
+            elif webhook_type == "item.deleted":
+                await self._handle_item_deleted(data)
             else:
                 _LOGGER.warning(f"Unhandled webhook type: {webhook_type}")
                 
@@ -75,37 +76,37 @@ class HomeboxWebhookView(HomeAssistantView):
             _LOGGER.error(f"Error handling webhook: {ex}")
             return web.Response(status=500)
 
-    async def _handle_asset_updated(self, data: Dict[str, Any]) -> None:
-        """Handle asset updated webhook."""
-        asset = data.get("data", {})
-        asset_id = asset.get("id")
+    async def _handle_item_updated(self, data: Dict[str, Any]) -> None:
+        """Handle item updated webhook."""
+        item = data.get("data", {})
+        item_id = item.get("id")
         
-        if not asset_id:
-            _LOGGER.warning("Received asset update webhook without asset ID")
+        if not item_id:
+            _LOGGER.warning("Received item update webhook without item ID")
             return
             
         # Dispatch the signal for automations
         async_dispatcher_send(
             self.hass,
-            f"{SIGNAL_ASSET_UPDATED}_{asset_id}",
-            asset
+            f"{SIGNAL_ITEM_UPDATED}_{item_id}",
+            item
         )
         
-        # Also send a general signal for any asset update
+        # Also send a general signal for any item update
         async_dispatcher_send(
             self.hass,
-            SIGNAL_ASSET_UPDATED,
-            asset
+            SIGNAL_ITEM_UPDATED,
+            item
         )
         
-        _LOGGER.debug(f"Processed asset update webhook for asset {asset_id}")
+        _LOGGER.debug(f"Processed item update webhook for item {item_id}")
 
-    async def _handle_asset_created(self, data: Dict[str, Any]) -> None:
-        """Handle asset created webhook."""
+    async def _handle_item_created(self, data: Dict[str, Any]) -> None:
+        """Handle item created webhook."""
         # This will force a refresh of all entities
-        _LOGGER.debug("Processed asset creation webhook")
+        _LOGGER.debug("Processed item creation webhook")
 
-    async def _handle_asset_deleted(self, data: Dict[str, Any]) -> None:
-        """Handle asset deleted webhook."""
+    async def _handle_item_deleted(self, data: Dict[str, Any]) -> None:
+        """Handle item deleted webhook."""
         # This will force a refresh of all entities
-        _LOGGER.debug("Processed asset deletion webhook")
+        _LOGGER.debug("Processed item deletion webhook")

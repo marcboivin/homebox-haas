@@ -18,8 +18,14 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .auth_client import HomeboxAuthClient, HomeboxAuthError, HomeboxApiError
+# Import constants before other local modules
 from .const import DOMAIN, PLATFORMS, CONF_ASSET_LABEL, CONF_WEBHOOK_ID, CONF_USE_HTTPS, DEFAULT_USE_HTTPS
+
+# Import custom exceptions
+from .errors import HomeboxAuthError, HomeboxApiError
+
+# Now import other custom modules that might use the above
+from .auth_client import HomeboxAuthClient
 from .webhook import async_setup_webhook
 
 _LOGGER = logging.getLogger(__name__)
