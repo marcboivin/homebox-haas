@@ -125,6 +125,7 @@ class HomeboxItemSensor(CoordinatorEntity, SensorEntity):
         """Return the state attributes."""
         attributes = {
             "item_id": self._item.get("id"),
+            "asset_id": self._item.get("id"), # Added for backward compatibility with template
             "description": self._item.get("description", ""),
             "purchase_date": self._item.get("purchase_date"),
             "purchase_price": self._item.get("purchase_price"),
@@ -164,15 +165,28 @@ class HomeboxItemSensor(CoordinatorEntity, SensorEntity):
             return
             
         # Register services
-        service_name = f"change_location_{item_id}"
-        _LOGGER.debug(f"Registering service {service_name}")
+        location_service_name = f"change_location_{item_id}"
+        _LOGGER.debug(f"Registering service {location_service_name}")
         
         self.async_on_remove(
             self.hass.services.async_register(
                 DOMAIN,
-                service_name,
+                location_service_name,
                 self._service_change_location,
                 schema=vol.Schema({vol.Required("location_id"): str}),
+            )
+        )
+        
+        # Register move item service
+        move_service_name = f"move_item_{item_id}"
+        _LOGGER.debug(f"Registering service {move_service_name}")
+        
+        self.async_on_remove(
+            self.hass.services.async_register(
+                DOMAIN,
+                move_service_name,
+                self._service_move_item,
+                schema=vol.Schema({vol.Required("target_item_id"): str}),
             )
         )
         
@@ -208,3 +222,15 @@ class HomeboxItemSensor(CoordinatorEntity, SensorEntity):
             
             # Force a data update via coordinator
             await self.coordinator.async_request_refresh()
+            
+    async def _service_move_item(self, service_call) -> None:
+        """Handle the service call to move the item to another item's location."""
+        target_item_id = service_call.data["target_item_id"]
+        
+        _LOGGER.debug(f"Moving item {self._item['id']} to be with item {target_item_id}")
+        success = await self.client.move_item(self._item["id"], target_item_id)
+        
+        if success:
+            # Force a data update via coordinator - this will refresh all attributes
+            await self.coordinator.async_request_refresh()
+            self.async_write_ha_state()

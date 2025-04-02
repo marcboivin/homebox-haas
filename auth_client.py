@@ -342,6 +342,51 @@ class HomeboxAuthClient:
             _LOGGER.error(f"Failed to update item location: {ex}")
             return False
             
+    async def move_item(self, item_id: str, target_item_id: str) -> bool:
+        """Move an item to be with another item.
+        
+        Args:
+            item_id: ID of the item to move
+            target_item_id: ID of the target item to move to
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # First get the target item to determine its location
+            params = None
+            result = await self.api_request("GET", f"items/{target_item_id}", params=params)
+            
+            # Extract the location ID from the target item
+            if isinstance(result, dict):
+                if "location_id" in result:
+                    target_location_id = result["location_id"]
+                elif "location" in result and isinstance(result["location"], dict) and "id" in result["location"]:
+                    target_location_id = result["location"]["id"]
+                elif "data" in result and isinstance(result["data"], dict):
+                    data = result["data"]
+                    if "location_id" in data:
+                        target_location_id = data["location_id"]
+                    elif "location" in data and isinstance(data["location"], dict) and "id" in data["location"]:
+                        target_location_id = data["location"]["id"]
+                    else:
+                        _LOGGER.error(f"Could not find location ID in target item data: {data}")
+                        return False
+                else:
+                    _LOGGER.error(f"Could not find location ID in target item: {result}")
+                    return False
+            else:
+                _LOGGER.error(f"Unexpected response format for target item: {result}")
+                return False
+                
+            # Now update the source item's location
+            _LOGGER.debug(f"Moving item {item_id} to location {target_location_id} with target item {target_item_id}")
+            return await self.update_item_location(item_id, target_location_id)
+                
+        except Exception as ex:
+            _LOGGER.error(f"Failed to move item: {ex}")
+            return False
+            
     async def register_webhook(self, webhook_url: str, events: list = None) -> bool:
         """Register a webhook with Homebox.
         
