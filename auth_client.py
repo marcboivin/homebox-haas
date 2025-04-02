@@ -61,6 +61,8 @@ class HomeboxAuthClient:
             "stayLoggedIn": True
         }
         
+        _LOGGER.debug(f"Authenticating with Homebox at {auth_url}")
+        
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
@@ -69,21 +71,35 @@ class HomeboxAuthClient:
                     json=payload,
                     ssl=None if not self.verify_ssl else True
                 ) as response:
+                    response_text = await response.text()
+                    _LOGGER.debug(f"Authentication response status: {response.status}, body: {response_text[:200]}")
+                    
                     response.raise_for_status()
                     auth_data = await response.json()
                     
                     # Store the authentication token
-                    # Note: This assumes the response format. Adjust based on actual Homebox API response
-                    self.auth_token = auth_data.get("token")
+                    # Extract token from response - adjust based on actual Homebox API response format
+                    if "token" in auth_data:
+                        self.auth_token = auth_data["token"]
+                        _LOGGER.debug(f"Received token: {self.auth_token[:10]}...")
+                    elif "data" in auth_data and "token" in auth_data["data"]:
+                        self.auth_token = auth_data["data"]["token"]
+                        _LOGGER.debug(f"Received token from data object: {self.auth_token[:10]}...")
+                    else:
+                        _LOGGER.error(f"Authentication response doesn't contain token: {auth_data}")
+                        self.authenticated = False
+                        return False
                     
                     if not self.auth_token:
-                        _LOGGER.error("Authentication succeeded but no token was returned")
+                        _LOGGER.error("Authentication succeeded but no token was extracted")
                         self.authenticated = False
                         return False
                         
                     # Set token expiry (if provided in response, otherwise use refresh interval)
                     if "expires" in auth_data:
                         self.token_expiry = datetime.fromisoformat(auth_data["expires"].replace("Z", "+00:00"))
+                    elif "data" in auth_data and "expires" in auth_data["data"]:
+                        self.token_expiry = datetime.fromisoformat(auth_data["data"]["expires"].replace("Z", "+00:00"))
                     else:
                         # If no expiry provided, set based on refresh interval
                         self.token_expiry = datetime.now() + timedelta(minutes=self.refresh_interval)
@@ -96,6 +112,10 @@ class HomeboxAuthClient:
             
         except aiohttp.ClientError as ex:
             _LOGGER.error(f"Failed to authenticate with Homebox: {ex}")
+            self.authenticated = False
+            return False
+        except Exception as ex:
+            _LOGGER.error(f"Unexpected error during authentication: {ex}")
             self.authenticated = False
             return False
 
@@ -141,6 +161,13 @@ class HomeboxAuthClient:
         # Build the request
         url = f"{self.server_url}/api/v1/{endpoint.lstrip('/')}"
         
+        # Make sure we have an auth token
+        if not self.auth_token:
+            _LOGGER.error("No auth token available for API request")
+            raise HomeboxAuthError("No authentication token available")
+            
+        _LOGGER.debug(f"Making API request to {url} with token: {self.auth_token[:10]}...")
+        
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -157,9 +184,14 @@ class HomeboxAuthClient:
                     params=params if params else None,
                     ssl=None if not self.verify_ssl else True
                 ) as response:
+                    response_text = await response.text()
+                    _LOGGER.debug(f"Response status: {response.status}, body: {response_text[:200]}")
+                    
                     if response.status == 401:
+                        _LOGGER.warning("Authentication token rejected, attempting to re-authenticate")
                         # Try to re-authenticate once
                         if await self.authenticate():
+                            _LOGGER.info("Re-authentication successful, retrying request")
                             # Retry the request with the new token
                             return await self.api_request(method, endpoint, data, params)
                         else:
@@ -169,8 +201,10 @@ class HomeboxAuthClient:
                     return await response.json()
             
         except aiohttp.ClientError as ex:
+            _LOGGER.error(f"API request failed: {ex}")
             raise HomeboxApiError(f"API request failed: {ex}")
         except Exception as ex:
+            _LOGGER.error(f"Unexpected error during API request: {ex}")
             raise HomeboxApiError(f"Unexpected error during API request: {ex}")
 
     async def test_connection(self) -> bool:
