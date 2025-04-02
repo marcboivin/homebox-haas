@@ -15,7 +15,7 @@ from homeassistant.const import (
 )
 
 from .auth_client import HomeboxAuthClient
-from .const import DOMAIN, DEFAULT_SCAN_INTERVAL, DEFAULT_VERIFY_SSL, CONF_ASSET_LABEL
+from .const import DOMAIN, DEFAULT_SCAN_INTERVAL, DEFAULT_VERIFY_SSL, CONF_ASSET_LABEL, CONF_USE_HTTPS, DEFAULT_USE_HTTPS
 
 _LOGGER = logging.getLogger(__name__)
 
