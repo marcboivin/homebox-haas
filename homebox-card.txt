@@ -1,15 +1,43 @@
-type: entities
-title: Homebox Assets
+## Homebox Card
+## This file contains multiple cards that can be copy-pasted into the Lovelace UI
+
+## Card 1: Action Buttons
+type: grid
+columns: 2
+square: false
+cards:
+  - type: button
+    name: Refresh Items
+    icon: mdi:refresh
+    tap_action:
+      action: call-service
+      service: homeassistant.reload_config_entry
+  - type: button
+    name: Sync Locations
+    icon: mdi:map-marker-multiple
+    tap_action:
+      action: call-service
+      service: homebox.sync_locations
+
+## Card 2: Title
+type: markdown
+content: |-
+  # Homebox Assets
+  Your inventory at a glance
+
+## Card 3: Entity Filter (copy this as a Manual Card in the UI)
+type: entity-filter
 entities:
-  - entity: sensor.homebox_item_1
-  - entity: sensor.homebox_item_2
-  - entity: sensor.homebox_item_3
-footer:
-  type: buttons
-  entities:
-    - entity: input_button.sync_homebox_locations
-      name: Sync Locations
-      icon: mdi:sync
-    - entity: input_button.refresh_homebox
-      name: Refresh Items
-      icon: mdi:refresh
+  - sensor.all_entities_here
+  - sensor.will_be_filtered
+filter:
+  include:
+    - domain: sensor
+      entity_id: "/homebox_item_*/"
+state_filter:
+  - operator: "!="
+    value: "unavailable"
+card:
+  type: entities
+  title: Your Homebox Items
+  show_header_toggle: false
