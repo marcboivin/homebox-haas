@@ -279,7 +279,7 @@ class HomeboxAuthClient:
             # Build query parameters if label is provided
             params = {"label": label} if label else None
             
-            result = await self.api_request("GET", "assets", params=params)
+            result = await self.api_request("GET", "items", params=params)
             _LOGGER.debug(f"Assets API response: {result}")
             
             # Handle different response formats
@@ -310,7 +310,7 @@ class HomeboxAuthClient:
         """
         try:
             data = {"location_id": location_id}
-            result = await self.api_request("PATCH", f"assets/{asset_id}", data=data)
+            result = await self.api_request("PATCH", f"items/{asset_id}", data=data)
             _LOGGER.info(f"Updated location for asset {asset_id} to {location_id}")
             return True
         except Exception as ex:
